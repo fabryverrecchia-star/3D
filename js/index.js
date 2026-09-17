@@ -393,16 +393,16 @@ const animatePreviewTexts = (
 /**
  * Handles transition from carousel view to preview grid
  *
- * @param {Event} e - Click event triggered from `.scene__title`
+ * @param {Event} e - Click event triggered from anywhere in `.scene`
  */
 const activatePreviewFromCarousel = (e) => {
   e.preventDefault();
   if (isAnimating) return;
   isAnimating = true;
 
-  const titleEl = e.currentTarget;
-  const { wrapper, carousel, cards, chars } =
-    getSceneElementsFromTitle(titleEl);
+  const wrapper = e.currentTarget;
+  const titleEl = wrapper.querySelector('.scene__title');
+  const { carousel, cards, chars } = getSceneElementsFromTitle(titleEl);
 
   // Calculate scroll position to center the scene
   const offsetTop = wrapper.getBoundingClientRect().top + window.scrollY;
@@ -529,19 +529,106 @@ const deactivatePreviewToCarousel = (e) => {
 };
 
 /**
- * Adds click event listeners to scene titles and preview close buttons
+ * Opens the fullscreen video lightbox and plays the given source
+ *
+ * @param {string} src - Path to the mp4 file
+ * @param {string} [webmSrc] - Path to a webm alternative, if any
+ * @returns {void}
+ */
+const openVideoLightbox = (src, webmSrc) => {
+  const lightbox = document.getElementById('video-lightbox');
+  const player = document.getElementById('video-lightbox-player');
+  player.innerHTML = '';
+  if (webmSrc) {
+    const webm = document.createElement('source');
+    webm.src = webmSrc;
+    webm.type = 'video/webm';
+    player.appendChild(webm);
+  }
+  const mp4 = document.createElement('source');
+  mp4.src = src;
+  mp4.type = 'video/mp4';
+  player.appendChild(mp4);
+  player.load();
+  lightbox.classList.add('active');
+  player.play().catch(() => {});
+  document.querySelector('.frame').style.visibility = 'hidden';
+};
+
+/**
+ * Closes the fullscreen video lightbox and stops playback
+ *
+ * @returns {void}
+ */
+const closeVideoLightbox = () => {
+  const lightbox = document.getElementById('video-lightbox');
+  const player = document.getElementById('video-lightbox-player');
+  lightbox.classList.remove('active');
+  player.pause();
+  player.innerHTML = '';
+  player.load();
+  document.querySelector('.frame').style.visibility = '';
+};
+
+/**
+ * Handles a click anywhere on a `.scene` (title or carousel cards):
+ * scenes backed by a video open the fullscreen player, others open
+ * the usual preview grid.
+ *
+ * @param {Event} e - Click event triggered from `.scene`
+ */
+const handleSceneClick = (e) => {
+  const wrapper = e.currentTarget;
+  if (wrapper.dataset.video) {
+    e.preventDefault();
+    openVideoLightbox(wrapper.dataset.video, wrapper.dataset.videoWebm);
+    return;
+  }
+  activatePreviewFromCarousel(e);
+};
+
+/**
+ * Adds click event listeners to scenes and preview/lightbox close buttons
  *
  * @returns {void}
  */
 const initEventListeners = () => {
-  // When a scene title is clicked, activate the preview
-  document.querySelectorAll('.scene__title').forEach((title) => {
-    title.addEventListener('click', activatePreviewFromCarousel);
+  // Clicking anywhere in a scene (title or carousel cards) activates it
+  document.querySelectorAll('.scene').forEach((scene) => {
+    scene.addEventListener('click', handleSceneClick);
   });
 
   // When a preview close button is clicked, deactivate the preview
   document.querySelectorAll('.preview__close').forEach((btn) => {
     btn.addEventListener('click', deactivatePreviewToCarousel);
+  });
+
+  document
+    .getElementById('video-lightbox-close')
+    ?.addEventListener('click', closeVideoLightbox);
+};
+
+/**
+ * Plays each `.card__face--video` on loop within its own short
+ * data-start/data-duration window, so cards backed by the same
+ * source video show different moments of it.
+ *
+ * @returns {void}
+ */
+const initVideoThumbs = () => {
+  document.querySelectorAll('.card__face--video').forEach((video) => {
+    const start = parseFloat(video.dataset.start) || 0;
+    const end = start + (parseFloat(video.dataset.duration) || 3);
+
+    video.addEventListener('loadedmetadata', () => {
+      video.currentTime = start;
+    });
+    video.addEventListener('timeupdate', () => {
+      if (video.currentTime >= end || video.currentTime < start) {
+        video.currentTime = start;
+      }
+    });
+    video.play().catch(() => {});
   });
 };
 
@@ -595,6 +682,7 @@ const init = () => {
   initTextsSplit(); // Prepare character-level splits for animations
   initCarousels(); // Set up carousels with transforms and scroll triggers
   initEventListeners(); // Bind all interactive handlers
+  initVideoThumbs(); // Start the looping video thumbnails on carousel cards
   window.addEventListener('resize', ScrollTrigger.refresh); // Refresh triggers on resize
 };
 
