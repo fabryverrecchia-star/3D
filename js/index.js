@@ -611,25 +611,65 @@ const initEventListeners = () => {
 /**
  * Plays each `.card__face--video` on loop within its own short
  * data-start/data-duration window, so cards backed by the same
- * source video show different moments of it.
+ * source video show different moments of it. Autoplay is attempted
+ * repeatedly (on load, once visible, and on the first user gesture)
+ * since some embedding contexts (sandboxed iframes, strict mobile
+ * browsers) silently reject the initial autoplay attempt.
  *
  * @returns {void}
  */
 const initVideoThumbs = () => {
-  document.querySelectorAll('.card__face--video').forEach((video) => {
+  const videos = Array.from(document.querySelectorAll('.card__face--video'));
+  if (!videos.length) return;
+
+  const attemptPlay = (video) => {
+    if (video.paused) video.play().catch(() => {});
+  };
+
+  videos.forEach((video) => {
     const start = parseFloat(video.dataset.start) || 0;
     const end = start + (parseFloat(video.dataset.duration) || 3);
 
+    video.muted = true;
+    video.defaultMuted = true;
+
     video.addEventListener('loadedmetadata', () => {
       video.currentTime = start;
+      attemptPlay(video);
     });
+    video.addEventListener('canplay', () => attemptPlay(video));
     video.addEventListener('timeupdate', () => {
       if (video.currentTime >= end || video.currentTime < start) {
         video.currentTime = start;
       }
     });
-    video.play().catch(() => {});
+    attemptPlay(video);
   });
+
+  // Retry autoplay for whichever videos are currently visible
+  if ('IntersectionObserver' in window) {
+    const observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (entry.isIntersecting) attemptPlay(entry.target);
+        });
+      },
+      { threshold: 0.1 }
+    );
+    videos.forEach((video) => observer.observe(video));
+  }
+
+  // Browsers that block autoplay outright will allow it after any
+  // user gesture; catch the first one anywhere on the page.
+  const retryOnGesture = () => {
+    videos.forEach(attemptPlay);
+    ['pointerdown', 'touchstart', 'keydown', 'wheel'].forEach((type) =>
+      window.removeEventListener(type, retryOnGesture)
+    );
+  };
+  ['pointerdown', 'touchstart', 'keydown', 'wheel'].forEach((type) =>
+    window.addEventListener(type, retryOnGesture, { once: true, passive: true })
+  );
 };
 
 /**
